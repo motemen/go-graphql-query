@@ -61,12 +61,12 @@ func TestToString(t *testing.T) {
 		Repo:   "test-repository",
 		Number: 2,
 	}
+	r.Repository.PullRequest.Commits.GraphQLParams.First = 100
 	s, err := New(&r, &vars).
-		Bind(&r.Repository.GraphQLParams.Owner, Var{&vars.Owner}).
-		Bind(&r.Repository.GraphQLParams.Name, Var{&vars.Repo}).
-		Bind(&r.Repository.PullRequest.GraphQLParams.Number, Var{&vars.Number}).
-		Bind(&r.Repository.PullRequest.Commits.GraphQLParams.First, 100).
-		Bind(&r.Repository.PullRequest.Commits.GraphQLParams.After, Var{&vars.CommitsAfter}).
+		Bind(&r.Repository.GraphQLParams.Owner, &vars.Owner).
+		Bind(&r.Repository.GraphQLParams.Name, &vars.Repo).
+		Bind(&r.Repository.PullRequest.GraphQLParams.Number, &vars.Number).
+		Bind(&r.Repository.PullRequest.Commits.GraphQLParams.After, &vars.CommitsAfter).
 		String()
 	t.Log(s, err)
 }

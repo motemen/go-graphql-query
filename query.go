@@ -13,6 +13,7 @@ type Builder struct {
 	Q      interface{}
 	V      interface{}
 	params map[interface{}]map[string]interface{}
+	binds  map[interface{}]interface{}
 }
 
 func New(query interface{}, variables interface{}) *Builder {
@@ -22,7 +23,37 @@ func New(query interface{}, variables interface{}) *Builder {
 }
 
 func (b *Builder) Bind(ref interface{}, value interface{}) *Builder {
+	if b.binds == nil {
+		b.binds = map[interface{}]interface{}{}
+	}
+	b.binds[ref] = b.varName(value)
 	return b
+}
+
+type varname struct {
+	name string
+}
+
+func (v varname) GoString() string {
+	return "$" + v.name
+}
+
+func (b *Builder) varName(value interface{}) *varname {
+	rv, ok := reflectStruct(reflect.ValueOf(b.V))
+	if !ok {
+		panic("TODO")
+	}
+
+	rt := rv.Type()
+	for i := 0; i < rv.NumField(); i++ {
+		ft := rt.Field(i)
+		fv := rv.Field(i)
+		if fv.Addr().Interface() == value {
+			return &varname{b.toName(ft.Name)}
+		}
+	}
+
+	return nil
 }
 
 func (b *Builder) scanParams() error {
@@ -36,6 +67,59 @@ func (b *Builder) scanParams() error {
 		log.Printf("%+v %+v", k, v)
 	}
 	return nil
+}
+
+func (b *Builder) queryParams() string {
+	params := []string{}
+	for _, names := range b.params {
+		for name, p := range names {
+			param := fmt.Sprintf("%s: %s", "$"+b.toName(name), b.typeName(p))
+			params = append(params, param)
+		}
+	}
+	if len(params) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(params, ", ") + ")"
+}
+
+func (b *Builder) typeName(v interface{}) string {
+	rt := reflect.TypeOf(v)
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+	}
+
+	switch rt.Kind() {
+	case reflect.Array:
+	case reflect.Bool:
+		return "Boolean" // ?
+	case reflect.Chan:
+	case reflect.Complex128:
+	case reflect.Complex64:
+	case reflect.Float32:
+		fallthrough
+	case reflect.Float64:
+	case reflect.Func:
+	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8:
+		return "Int"
+	case reflect.Interface:
+	case reflect.Invalid:
+	case reflect.Map:
+	case reflect.Ptr:
+	case reflect.Slice:
+	case reflect.String:
+		return "String"
+	case reflect.Struct:
+	case reflect.Uint:
+	case reflect.Uint16:
+	case reflect.Uint32:
+	case reflect.Uint64:
+	case reflect.Uint8:
+	case reflect.Uintptr:
+	case reflect.UnsafePointer:
+	}
+
+	return rt.String()
 }
 
 func (b *Builder) scanParamsStruct(rv, parent reflect.Value, path []string) {
@@ -88,7 +172,9 @@ func isGraphQLParamField(t reflect.StructField) bool {
 
 func (b Builder) String() (string, error) {
 	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "query %s {\n", b.queryParams())
 	err := b.toString(&buf, b.Q, 0)
+	fmt.Fprintf(&buf, "}")
 	return buf.String(), err
 }
 
@@ -109,10 +195,10 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 		_, isStruct := reflectStruct(fv)
 		if isStruct {
 			params := ""
-			if fv.CanAddr() {
+			if fv.CanAddr() && b.params[fv.Addr().Interface()] != nil {
 				pp := []string{}
 				for name, param := range b.params[fv.Addr().Interface()] {
-					pp = append(pp, fmt.Sprintf("%s: %v", b.toName(name), b.boundValue(param)))
+					pp = append(pp, fmt.Sprintf("%s: %#v", b.toName(name), b.boundValue(param)))
 				}
 				params = "(" + strings.Join(pp, ", ") + ")"
 			}
@@ -127,8 +213,11 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 	return nil
 }
 
-func (b Builder) boundValue(interface{}) interface{} {
-	return nil
+func (b Builder) boundValue(p interface{}) interface{} {
+	if v, ok := b.binds[p]; ok {
+		return v
+	}
+	return reflect.Indirect(reflect.ValueOf(p)).Interface()
 }
 
 func (b Builder) toName(name string) string {
