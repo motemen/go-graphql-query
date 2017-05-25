@@ -19,9 +19,9 @@ type argSpec struct {
 }
 
 func (a argSpec) argValue() interface{} {
-	name := a.variableName()
-	if name != "" {
-		return variable(name)
+	value := getTag(a.field, 0)
+	if value != "" {
+		return value
 	}
 
 	return a.value.Interface()
