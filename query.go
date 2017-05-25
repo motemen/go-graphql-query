@@ -12,7 +12,7 @@ import (
 type Builder struct {
 	Q      interface{}
 	V      interface{}
-	params map[interface{}]map[string]interface{}
+	params map[interface{}]map[string]reflect.Value
 	binds  map[interface{}]interface{}
 }
 
@@ -72,8 +72,8 @@ func (b *Builder) scanParams() error {
 func (b *Builder) queryParams() string {
 	params := []string{}
 	for _, names := range b.params {
-		for name, p := range names {
-			param := fmt.Sprintf("%s: %s", "$"+b.toName(name), b.typeName(p))
+		for name, fv := range names {
+			param := fmt.Sprintf("%s: %s", "$"+b.toName(name), b.typeName(fv.Addr().Interface()))
 			params = append(params, param)
 		}
 	}
@@ -136,7 +136,7 @@ func (b *Builder) scanParamsStruct(rv, parent reflect.Value, path []string) {
 				b.addParam(
 					rv.Addr().Interface(),
 					ft.Type.Field(i).Name,
-					fv.Field(i).Addr().Interface(),
+					fv.Field(i),
 				)
 			}
 
@@ -151,12 +151,12 @@ func (b *Builder) scanParamsStruct(rv, parent reflect.Value, path []string) {
 	}
 }
 
-func (b *Builder) addParam(node interface{}, name string, param interface{}) {
+func (b *Builder) addParam(node interface{}, name string, param reflect.Value) {
 	if b.params == nil {
-		b.params = map[interface{}]map[string]interface{}{}
+		b.params = map[interface{}]map[string]reflect.Value{}
 	}
 	if b.params[node] == nil {
-		b.params[node] = map[string]interface{}{}
+		b.params[node] = map[string]reflect.Value{}
 	}
 
 	b.params[node][name] = param
