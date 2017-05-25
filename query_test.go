@@ -13,16 +13,16 @@ type graphqlVariables struct {
 
 type graphqlResult struct {
 	Repository struct {
-		GraphQLParams struct {
-			Owner string
-			Name  string
+		GraphQLArguments struct {
+			Owner string `graphql:"$owner,notnull"`
+			Name  string `graphql:"$repo,notnull"`
 		}
 		DefaultBranchRef struct {
 			Name string
 		}
 		PullRequest struct {
-			GraphQLParams struct {
-				Number int
+			GraphQLArguments struct {
+				Number int `graphql:"$number,notnull"`
 			}
 			Title   string
 			Number  int
@@ -30,9 +30,9 @@ type graphqlResult struct {
 				Name string
 			}
 			Commits struct {
-				GraphQLParams struct {
-					First int `graphql:"100"`
-					After string
+				GraphQLArguments struct {
+					First int
+					After string `graphql:"$commitsAfter"`
 				}
 				Edges []struct {
 					Node struct {
@@ -61,12 +61,8 @@ func TestToString(t *testing.T) {
 		Repo:   "test-repository",
 		Number: 2,
 	}
-	r.Repository.PullRequest.Commits.GraphQLParams.First = 100
-	s, err := New(&r, &vars).
-		Bind(&r.Repository.GraphQLParams.Owner, &vars.Owner).
-		Bind(&r.Repository.GraphQLParams.Name, &vars.Repo).
-		Bind(&r.Repository.PullRequest.GraphQLParams.Number, &vars.Number).
-		Bind(&r.Repository.PullRequest.Commits.GraphQLParams.After, &vars.CommitsAfter).
-		String()
+	_ = vars
+	r.Repository.PullRequest.Commits.GraphQLArguments.First = 100
+	s, err := New(&r).String()
 	t.Log(s, err)
 }
