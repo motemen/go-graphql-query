@@ -34,7 +34,7 @@ type graphqlResult struct {
 			}
 			Commits struct {
 				GraphQLArguments struct {
-					First int
+					First int    // TODO: `graphql:"100"`
 					After string `graphql:"$commitsAfter"`
 				}
 				Edges []struct {
@@ -59,12 +59,6 @@ type graphqlResult struct {
 
 func TestToString(t *testing.T) {
 	var r graphqlResult
-	vars := graphqlVariables{
-		Owner:  "motemen",
-		Repo:   "test-repository",
-		Number: 2,
-	}
-	_ = vars
 	r.Repository.PullRequest.Commits.GraphQLArguments.First = 100
 	s, err := New(&r).String()
 	t.Log(s, err)

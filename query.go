@@ -10,7 +10,6 @@ import (
 
 type Builder struct {
 	Q    interface{}
-	V    interface{}
 	args map[interface{}]map[string]argSpec
 }
 
@@ -47,43 +46,17 @@ func getTag(f reflect.StructField, n int) string {
 
 func New(query interface{}) *Builder {
 	b := &Builder{Q: query}
-	b.scanParams()
+	b.scan()
 	return b
 }
 
-type varname struct {
-	name string
-}
-
-func (v varname) GoString() string {
-	return "$" + v.name
-}
-
-func (b *Builder) varName(value interface{}) *varname {
-	rv, ok := reflectStruct(reflect.ValueOf(b.V))
-	if !ok {
-		panic("TODO")
-	}
-
-	rt := rv.Type()
-	for i := 0; i < rv.NumField(); i++ {
-		ft := rt.Field(i)
-		fv := rv.Field(i)
-		if fv.Addr().Interface() == value {
-			return &varname{b.toName(ft.Name)}
-		}
-	}
-
-	return nil
-}
-
-func (b *Builder) scanParams() error {
+func (b *Builder) scan() error {
 	rv, ok := reflectStruct(reflect.ValueOf(b.Q))
 	if !ok {
 		return fmt.Errorf("must be a struct or a pointer to struct %+v", b.Q)
 	}
 
-	b.scanParamsStruct(rv, reflect.Value{}, []string{})
+	b.scanStruct(rv, reflect.Value{}, []string{})
 
 	return nil
 }
@@ -132,7 +105,7 @@ func (b *Builder) typeName(rt reflect.Type) string {
 	return "" // TODO
 }
 
-func (b *Builder) scanParamsStruct(rv, parent reflect.Value, path []string) {
+func (b *Builder) scanStruct(rv, parent reflect.Value, path []string) {
 	rt := rv.Type()
 	for i := 0; i < rv.NumField(); i++ {
 		ft := rt.Field(i)
@@ -143,7 +116,7 @@ func (b *Builder) scanParamsStruct(rv, parent reflect.Value, path []string) {
 
 		if isArgumentsField(ft) {
 			for i := 0; i < fv.NumField(); i++ {
-				b.addParam(
+				b.addArg(
 					rv.Addr().Interface(),
 					ft.Type.Field(i),
 					fv.Field(i),
@@ -157,11 +130,11 @@ func (b *Builder) scanParamsStruct(rv, parent reflect.Value, path []string) {
 		copy(newPath, path)
 		newPath[len(newPath)-1] = ft.Name
 
-		b.scanParamsStruct(fv, rv, newPath)
+		b.scanStruct(fv, rv, newPath)
 	}
 }
 
-func (b *Builder) addParam(node interface{}, field reflect.StructField, value reflect.Value) {
+func (b *Builder) addArg(node interface{}, field reflect.StructField, value reflect.Value) {
 	if b.args == nil {
 		b.args = map[interface{}]map[string]argSpec{}
 	}
