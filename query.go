@@ -20,12 +20,21 @@ type argSpec struct {
 }
 
 func (a argSpec) argValue() interface{} {
-	name := getTag(a.field, 0)
-	if strings.HasPrefix(name, "$") {
+	name := a.variableName()
+	if name != "" {
 		return variable(name)
 	}
 
 	return a.value.Interface()
+}
+
+func (a argSpec) variableName() string {
+	name := getTag(a.field, 0)
+	if strings.HasPrefix(name, "$") {
+		return name
+	}
+
+	return ""
 }
 
 func getTag(f reflect.StructField, n int) string {
@@ -82,8 +91,12 @@ func (b *Builder) scanParams() error {
 func (b *Builder) queryArguments() string {
 	args := []string{}
 	for _, names := range b.args {
-		for name, spec := range names {
-			param := fmt.Sprintf("%s: %s", "$"+b.toName(name), b.typeName(spec.field.Type))
+		for _, spec := range names {
+			varName := spec.variableName()
+			if varName == "" {
+				continue
+			}
+			param := fmt.Sprintf("%s: %s", varName, b.typeName(spec.field.Type))
 			if getTag(spec.field, 1) == "notnull" {
 				param += "!"
 			}
@@ -191,6 +204,13 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 			continue
 		}
 
+		directive := getTag(field, 0)
+		if strings.HasPrefix(directive, "@") {
+			directive = " " + directive
+		} else {
+			directive = ""
+		}
+
 		fv := rv.Field(i)
 		_, isStruct := reflectStruct(fv)
 		if isStruct {
@@ -203,7 +223,7 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 				}
 				args = "(" + strings.Join(pp, ", ") + ")"
 			}
-			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name), args)
+			fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name), args, directive)
 			b.toString(w, fv.Addr().Interface(), depth+1)
 			fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
 		} else if fv.Kind() == reflect.Slice {
@@ -213,7 +233,7 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 				return nil
 			}
 
-			fmt.Fprintf(w, "%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name))
+			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name), directive)
 			b.toString(w, reflect.New(et).Interface(), depth+1)
 			fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
 		} else {

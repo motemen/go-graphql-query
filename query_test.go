@@ -12,6 +12,9 @@ type graphqlVariables struct {
 }
 
 type graphqlResult struct {
+	GraphQLArguments struct {
+		WithCommits bool `graphql:"$withCommits,notnull"`
+	}
 	Repository struct {
 		GraphQLArguments struct {
 			Owner string `graphql:"$owner,notnull"`
@@ -46,7 +49,7 @@ type graphqlResult struct {
 					EndCursor   string
 				}
 				TotalCount int
-			}
+			} `graphql:"@include(if: $withCommits)"`
 		}
 	}
 	RateLimit struct {
