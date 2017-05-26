@@ -9,7 +9,23 @@ import (
 	"unicode"
 )
 
-type Builder struct {
+// Build makes GraphQL query suitable for q, which is also
+// a result JSON object for the GraphQL result JSON.
+// See the example.
+func Build(q interface{}) ([]byte, error) {
+	b := &builder{
+		query: q,
+	}
+
+	err := b.scan()
+	if err != nil {
+		return nil, err
+	}
+
+	return b.build()
+}
+
+type builder struct {
 	query interface{}
 	args  map[interface{}]map[string]argSpec
 }
@@ -17,6 +33,7 @@ type Builder struct {
 type argSpec struct {
 	field reflect.StructField
 	value reflect.Value
+	path  []string
 }
 
 func (a argSpec) argValue() interface{} {
@@ -95,13 +112,7 @@ TAGS:
 	return tags
 }
 
-func New(query interface{}) *Builder {
-	b := &Builder{query: query}
-	b.scan()
-	return b
-}
-
-func (b *Builder) scan() error {
+func (b *builder) scan() error {
 	rv, ok := reflectStruct(reflect.ValueOf(b.query))
 	if !ok {
 		return fmt.Errorf("must be a struct or a pointer to struct %+v", b.query)
@@ -112,15 +123,23 @@ func (b *Builder) scan() error {
 	return nil
 }
 
-func (b *Builder) queryArguments() string {
+func (b *builder) queryArguments() (string, error) {
 	args := []string{}
 	for _, names := range b.args {
-		for _, spec := range names {
+		for name, spec := range names {
 			varName := spec.variableName()
 			if varName == "" {
 				continue
 			}
-			param := fmt.Sprintf("%s: %s", varName, b.typeName(spec.field.Type))
+			typeName, err := b.typeName(spec.field.Type)
+			if err != nil {
+				path := strings.Join(spec.path, ".")
+				if path == "" {
+					path = "(root)"
+				}
+				return "", fmt.Errorf("argument %q at %s: %s", name, path, err)
+			}
+			param := fmt.Sprintf("%s: %s", varName, typeName)
 			if getTag(spec.field, 1) == "notnull" {
 				param += "!"
 			}
@@ -128,39 +147,40 @@ func (b *Builder) queryArguments() string {
 		}
 	}
 	if len(args) == 0 {
-		return ""
+		return "", nil
 	}
-	return "(" + strings.Join(args, ", ") + ")"
+	return "(" + strings.Join(args, ", ") + ")", nil
 }
 
-func (b *Builder) typeName(rt reflect.Type) string {
+func (b *builder) typeName(rt reflect.Type) (string, error) {
 	if rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()
 	}
 
 	switch rt.Kind() {
 	case reflect.Array, reflect.Slice:
-		return "[" + b.typeName(rt.Elem()) + "]"
+		name, err := b.typeName(rt.Elem())
+		return "[" + name + "]", err
 	case reflect.Bool:
-		return "Boolean"
+		return "Boolean", nil
 	case reflect.Float32, reflect.Float64:
-		return "Float"
+		return "Float", nil
 	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8:
-		return "Int"
+		return "Int", nil
 	case reflect.Ptr:
 		return b.typeName(rt.Elem())
 	case reflect.String:
 		if unicode.IsUpper(rune(rt.Name()[0])) {
 			// enum
-			return rt.Name()
+			return rt.Name(), nil
 		}
-		return "String"
+		return "String", nil
 	}
 
-	return "" // TODO
+	return "", fmt.Errorf("could not find type name for %s", rt.Name())
 }
 
-func (b *Builder) scanStruct(rv, parent reflect.Value, path []string) {
+func (b *builder) scanStruct(rv, parent reflect.Value, path []string) {
 	rt := rv.Type()
 	for i := 0; i < rv.NumField(); i++ {
 		ft := rt.Field(i)
@@ -175,6 +195,7 @@ func (b *Builder) scanStruct(rv, parent reflect.Value, path []string) {
 					rv.Addr().Interface(),
 					ft.Type.Field(i),
 					fv.Field(i),
+					path,
 				)
 			}
 
@@ -189,7 +210,7 @@ func (b *Builder) scanStruct(rv, parent reflect.Value, path []string) {
 	}
 }
 
-func (b *Builder) addArg(node interface{}, field reflect.StructField, value reflect.Value) {
+func (b *builder) addArg(node interface{}, field reflect.StructField, value reflect.Value, path []string) {
 	if b.args == nil {
 		b.args = map[interface{}]map[string]argSpec{}
 	}
@@ -200,6 +221,7 @@ func (b *Builder) addArg(node interface{}, field reflect.StructField, value refl
 	b.args[node][field.Name] = argSpec{
 		field: field,
 		value: value,
+		path:  path,
 	}
 }
 
@@ -211,15 +233,19 @@ func isArgumentsField(t reflect.StructField) bool {
 	return false
 }
 
-func (b Builder) String() (string, error) {
+func (b builder) build() ([]byte, error) {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "query%s {\n", b.queryArguments())
-	err := b.toString(&buf, b.query, 1)
+	args, err := b.queryArguments()
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(&buf, "query%s {\n", args)
+	err = b.toString(&buf, b.query, 1)
 	fmt.Fprintf(&buf, "}")
-	return buf.String(), err
+	return buf.Bytes(), err
 }
 
-func (b Builder) writeStructField(w io.Writer, depth int, field reflect.StructField, value reflect.Value) error {
+func (b builder) writeStructField(w io.Writer, depth int, field reflect.StructField, value reflect.Value) error {
 	var (
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, value)
@@ -251,7 +277,7 @@ func (b Builder) writeStructField(w io.Writer, depth int, field reflect.StructFi
 	return err
 }
 
-func (b Builder) nameForField(field reflect.StructField) string {
+func (b builder) nameForField(field reflect.StructField) string {
 	name := b.toName(field.Name) // TODO: use json:"name" tag
 
 	aliasOf := getTagNamed(field, "aliasof")
@@ -262,11 +288,11 @@ func (b Builder) nameForField(field reflect.StructField) string {
 	return name
 }
 
-func (b Builder) directiveStringForField(field reflect.StructField, value reflect.Value) string {
+func (b builder) directiveStringForField(field reflect.StructField, value reflect.Value) string {
 	return getTagWithPrefix(field, "@")
 }
 
-func (b Builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
+func (b builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
 	var (
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, reflect.Value{})
@@ -275,7 +301,7 @@ func (b Builder) writeSimpleField(w io.Writer, depth int, field reflect.StructFi
 	fmt.Fprintf(w, "%s%s%s%s\n", strings.Repeat(" ", depth*2), name, args, directive)
 }
 
-func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
+func (b builder) toString(w io.Writer, v interface{}, depth int) error {
 	rv, ok := reflectStruct(reflect.ValueOf(v))
 	if !ok {
 		return fmt.Errorf("invalid value: %+v", v)
@@ -291,12 +317,18 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 		value := rv.Field(i)
 		switch {
 		case isKindOf(value.Type(), reflect.Struct):
-			b.writeStructField(w, depth, field, value)
+			err := b.writeStructField(w, depth, field, value)
+			if err != nil {
+				return err
+			}
 			continue
 
 		case isKindOf(value.Type(), reflect.Slice):
 			if et := value.Type().Elem(); isKindOf(et, reflect.Struct) {
-				b.writeStructField(w, depth, field, reflect.New(et))
+				err := b.writeStructField(w, depth, field, reflect.New(et))
+				if err != nil {
+					return err
+				}
 				continue
 			}
 		}
@@ -307,7 +339,7 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 	return nil
 }
 
-func (b Builder) toName(name string) string {
+func (b builder) toName(name string) string {
 	return strings.ToLower(name[0:1]) + name[1:]
 }
 
@@ -330,13 +362,7 @@ func isKindOf(rt reflect.Type, kind reflect.Kind) bool {
 	return false
 }
 
-type variable string
-
-func (v variable) GoString() string {
-	return "$" + string(v)
-}
-
-func (b Builder) argsStringForField(field reflect.StructField, fv reflect.Value) string {
+func (b builder) argsStringForField(field reflect.StructField, fv reflect.Value) string {
 	args := ""
 	if fv.CanAddr() && b.args[fv.Addr().Interface()] != nil {
 		aa := []string{}

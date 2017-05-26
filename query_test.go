@@ -97,8 +97,12 @@ func TestToString(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		s, err := New(test).String()
-		t.Log(s, err)
+		s, err := Build(test)
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		t.Log(string(s))
 	}
 }
 
