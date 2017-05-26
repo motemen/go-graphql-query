@@ -182,8 +182,15 @@ func (b Builder) writeStructField(w io.Writer, depth int, field reflect.StructFi
 		directive = ""
 	}
 
+	name := b.toName(field.Name) // TODO: use json:"name" tag
+
+	aliasOf := getTagNamed(field, "aliasof")
+	if aliasOf != "" {
+		name = name + ": " + aliasOf
+	}
+
 	args := b.argsStringForField(value)
-	fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name), args, directive)
+	fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), name, args, directive)
 	var i interface{}
 	if value.CanAddr() {
 		i = value.Addr().Interface()
