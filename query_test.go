@@ -1,6 +1,7 @@
 package graphqlquery
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -40,19 +41,19 @@ type withArgumentsScalar struct {
 type withAliases struct {
 	EmpireHero struct {
 		GraphQLArguments struct {
-			Episode int `graphql:"EMPIRE"`
+			Episode string `graphql:"EMPIRE"`
 		}
 		Name string
 	} `graphql:"aliasof=hero"`
 	JediHero struct {
 		GraphQLArguments struct {
-			Episode int `graphql:"JEDI"`
+			Episode string `graphql:"JEDI"`
 		}
 		Name string
 	} `graphql:"aliasof=hero"`
 }
 
-type Episode int
+type Episode string
 
 type withVariables struct {
 	Hero struct {
@@ -65,6 +66,25 @@ type withVariables struct {
 	}
 }
 
+type withInlineFragments struct {
+	GraphQLArguments struct {
+		Episode Episode `graphql:"$ep,notnull"`
+	}
+	Hero struct {
+		Name        string
+		DroidFields `graphql:"... on Droid"`
+		HumanFields `graphql:"... on Human"`
+	} `graphql:"(episode: $ep)"`
+}
+
+type DroidFields struct {
+	PrimaryFunction string
+}
+
+type HumanFields struct {
+	Height int
+}
+
 func TestToString(t *testing.T) {
 	tests := []interface{}{
 		&simple{},
@@ -73,6 +93,7 @@ func TestToString(t *testing.T) {
 		&withArgumentsScalar{},
 		&withAliases{},
 		&withVariables{},
+		&withInlineFragments{},
 	}
 
 	for _, test := range tests {
@@ -82,10 +103,20 @@ func TestToString(t *testing.T) {
 }
 
 func TestParseTags(t *testing.T) {
-	t.Logf("%v", parseTags("a,b,c"))
-	t.Logf("%v", parseTags("(a,b),c"))
-	t.Logf("%v", parseTags("a,(b,c)"))
-	t.Logf("%v", parseTags("a,(b,c),d"))
-	t.Logf("%v", parseTags("a,(b,c,d),e"))
-	t.Logf("%v", parseTags("a,(b,c,d,e"))
+	tests := []struct {
+		in  string
+		out string
+	}{
+		{"a,b,c", "[a b c]"},
+		{"(a,b),c", "[(a,b) c]"},
+		{"a,(b,c)", "[a (b,c)]"},
+		{"a,(b,c),d", "[a (b,c) d]"},
+		{"a,(b,c,d", "[a (b c d]"},
+	}
+
+	for _, test := range tests {
+		if got := fmt.Sprintf("%v", parseTags(test.in)); got != test.out {
+			t.Errorf("expected %v but got %v", test.out, got)
+		}
+	}
 }

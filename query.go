@@ -29,19 +29,25 @@ func (a argSpec) argValue() interface{} {
 }
 
 func (a argSpec) variableName() string {
-	name := getTag(a.field, 0)
-	if strings.HasPrefix(name, "$") {
-		return name
-	}
-
-	return ""
+	return getTagWithPrefix(a.field, "$")
 }
 
-func getTag(f reflect.StructField, n int) string {
-	tags := parseTags(f.Tag.Get("graphql"))
+func getTag(field reflect.StructField, n int) string {
+	tags := parseTags(field.Tag.Get("graphql"))
 	if len(tags) > n {
 		return tags[n]
 	}
+	return ""
+}
+
+func getTagWithPrefix(field reflect.StructField, prefix string) string {
+	tags := parseTags(field.Tag.Get("graphql"))
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, prefix) {
+			return tag
+		}
+	}
+
 	return ""
 }
 
@@ -140,14 +146,14 @@ func (b *Builder) typeName(rt reflect.Type) string {
 	case reflect.Float32, reflect.Float64:
 		return "Float"
 	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8:
-		if unicode.IsUpper(rune(rt.Name()[0])) {
-			// enum
-			return rt.Name()
-		}
 		return "Int"
 	case reflect.Ptr:
 		return b.typeName(rt.Elem())
 	case reflect.String:
+		if unicode.IsUpper(rune(rt.Name()[0])) {
+			// enum
+			return rt.Name()
+		}
 		return "String"
 	}
 
@@ -218,9 +224,18 @@ func (b Builder) writeStructField(w io.Writer, depth int, field reflect.StructFi
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, value)
 		directive = b.directiveStringForField(field, value)
+		fragment  = getTagWithPrefix(field, "...")
 	)
 
-	fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), name, args, directive)
+	if directive != "" {
+		directive = " " + directive
+	}
+
+	if fragment != "" {
+		fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), fragment, directive)
+	} else {
+		fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), name, args, directive)
+	}
 
 	var i interface{}
 	if value.CanAddr() {
@@ -248,12 +263,7 @@ func (b Builder) nameForField(field reflect.StructField) string {
 }
 
 func (b Builder) directiveStringForField(field reflect.StructField, value reflect.Value) string {
-	directive := getTag(field, 0)
-	if strings.HasPrefix(directive, "@") {
-		return " " + directive
-	}
-
-	return ""
+	return getTagWithPrefix(field, "@")
 }
 
 func (b Builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
