@@ -4,61 +4,88 @@ import (
 	"testing"
 )
 
-type graphqlVariables struct {
-	Owner        string
-	Repo         string
-	Number       int
-	CommitsAfter string
+type simple struct {
+	Hero struct {
+		Name string
+	}
 }
 
-type graphqlResult struct {
-	GraphQLArguments struct {
-		WithCommits bool `graphql:"$withCommits,notnull"`
-	}
-	Repository struct {
+type withArguments struct {
+	Human struct {
 		GraphQLArguments struct {
-			Owner string `graphql:"$owner,notnull"`
-			Name  string `graphql:"$repo,notnull"`
+			Id string `graphql:"\"1000\""`
 		}
-		DefaultBranchRef struct {
+		Name   string
+		Height int
+	}
+}
+
+type withArguments2 struct {
+	Human struct {
+		Name   string
+		Height int
+	} `graphql:"(id: \"1000\")"`
+}
+
+type withArgumentsScalar struct {
+	Human struct {
+		GraphQLArguments struct {
+			Id string `graphql:"\"1000\""`
+		}
+		Name   string
+		Height int `graphql:"(unit: FOOT)"`
+	}
+}
+
+type withAliases struct {
+	EmpireHero struct {
+		GraphQLArguments struct {
+			Episode int `graphql:"EMPIRE"`
+		}
+		Name string
+	} `graphql:"aliasof=hero"`
+	JediHero struct {
+		GraphQLArguments struct {
+			Episode int `graphql:"JEDI"`
+		}
+		Name string
+	} `graphql:"aliasof=hero"`
+}
+
+type Episode int
+
+type withVariables struct {
+	Hero struct {
+		GraphQLArguments struct {
+			Episode Episode `graphql:"$episode"`
+		}
+		Friends []struct {
 			Name string
 		}
-		PullRequest struct {
-			GraphQLArguments struct {
-				Number int `graphql:"$number,notnull"`
-			}
-			Title   string
-			Number  int
-			BaseRef struct {
-				Name string
-			}
-			Commits struct {
-				GraphQLArguments struct {
-					First int    `graphql:"100"`
-					After string `graphql:"$commitsAfter"`
-				}
-				Edges []struct {
-					Node struct {
-						Commit struct {
-							Message string
-						}
-					}
-				}
-				PageInfo struct {
-					HasNextPage bool
-					EndCursor   string
-				}
-				TotalCount int
-			} `graphql:"@include(if: $withCommits)"`
-		}
-	}
-	RateLimit struct {
-		Remaining int
 	}
 }
 
 func TestToString(t *testing.T) {
-	var r graphqlResult
-	s, err := New(&r).String()
-	t.Log(s, err)
+	tests := []interface{}{
+		&simple{},
+		&withArguments{},
+		&withArguments2{},
+		&withArgumentsScalar{},
+		&withAliases{},
+		&withVariables{},
+	}
+
+	for _, test := range tests {
+		s, err := New(test).String()
+		t.Log(s, err)
+	}
+}
+
+func TestParseTags(t *testing.T) {
+	t.Logf("%v", parseTags("a,b,c"))
+	t.Logf("%v", parseTags("(a,b),c"))
+	t.Logf("%v", parseTags("a,(b,c)"))
+	t.Logf("%v", parseTags("a,(b,c),d"))
+	t.Logf("%v", parseTags("a,(b,c,d),e"))
+	t.Logf("%v", parseTags("a,(b,c,d,e"))
 }
