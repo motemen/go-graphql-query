@@ -44,6 +44,16 @@ func getTag(f reflect.StructField, n int) string {
 	return ""
 }
 
+func getTagNamed(f reflect.StructField, name string) string {
+	tags := strings.Split(f.Tag.Get("graphql"), ",")
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, name+"=") {
+			return tag[len(name+"="):]
+		}
+	}
+	return ""
+}
+
 func New(query interface{}) *Builder {
 	b := &Builder{Q: query}
 	b.scan()
@@ -164,6 +174,31 @@ func (b Builder) String() (string, error) {
 	return buf.String(), err
 }
 
+func (b Builder) writeStructField(w io.Writer, depth int, field reflect.StructField, value reflect.Value) error {
+	directive := getTag(field, 0)
+	if strings.HasPrefix(directive, "@") {
+		directive = " " + directive
+	} else {
+		directive = ""
+	}
+
+	args := b.argsStringForField(value)
+	fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name), args, directive)
+	var i interface{}
+	if value.CanAddr() {
+		i = value.Addr().Interface()
+	} else {
+		i = value.Interface()
+	}
+	err := b.toString(w, i, depth+1)
+	fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
+	return err
+}
+
+func (b Builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
+	fmt.Fprintf(w, "%s%s\n", strings.Repeat(" ", depth*2), b.toName(field.Name))
+}
+
 func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 	rv, ok := reflectStruct(reflect.ValueOf(v))
 	if !ok {
@@ -177,41 +212,20 @@ func (b Builder) toString(w io.Writer, v interface{}, depth int) error {
 			continue
 		}
 
-		directive := getTag(field, 0)
-		if strings.HasPrefix(directive, "@") {
-			directive = " " + directive
-		} else {
-			directive = ""
+		value := rv.Field(i)
+		switch {
+		case isKindOf(value.Type(), reflect.Struct):
+			b.writeStructField(w, depth, field, value)
+			continue
+
+		case isKindOf(value.Type(), reflect.Slice):
+			if et := value.Type().Elem(); isKindOf(et, reflect.Struct) {
+				b.writeStructField(w, depth, field, reflect.New(et))
+				continue
+			}
 		}
 
-		fv := rv.Field(i)
-		_, isStruct := reflectStruct(fv)
-		if isStruct {
-			args := ""
-			if fv.CanAddr() && b.args[fv.Addr().Interface()] != nil {
-				pp := []string{}
-				for name, arg := range b.args[fv.Addr().Interface()] {
-					// FIXME: %v is not correct, must use JSON
-					pp = append(pp, fmt.Sprintf("%s: %v", b.toName(name), arg.argValue()))
-				}
-				args = "(" + strings.Join(pp, ", ") + ")"
-			}
-			fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name), args, directive)
-			b.toString(w, fv.Addr().Interface(), depth+1)
-			fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
-		} else if fv.Kind() == reflect.Slice {
-			et := fv.Type().Elem()
-			if et.Kind() != reflect.Struct { // TODO []*struct{}
-				fmt.Fprintf(w, "%s%s\n", strings.Repeat(" ", depth*2), b.toName(field.Name))
-				return nil
-			}
-
-			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), b.toName(field.Name), directive)
-			b.toString(w, reflect.New(et).Interface(), depth+1)
-			fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
-		} else {
-			fmt.Fprintf(w, "%s%s\n", strings.Repeat(" ", depth*2), b.toName(field.Name))
-		}
+		b.writeSimpleField(w, depth, field)
 	}
 
 	return nil
@@ -229,12 +243,32 @@ func reflectStruct(rv reflect.Value) (reflect.Value, bool) {
 	return rv, rv.Kind() == reflect.Struct
 }
 
-type Var struct {
-	V interface{}
+func isKindOf(rt reflect.Type, kind reflect.Kind) bool {
+	k := rt.Kind()
+	if k == kind {
+		return true
+	}
+	if k == reflect.Ptr {
+		return rt.Elem().Kind() == kind
+	}
+	return false
 }
 
 type variable string
 
 func (v variable) GoString() string {
 	return "$" + string(v)
+}
+
+func (b Builder) argsStringForField(fv reflect.Value) string {
+	args := ""
+	if fv.CanAddr() && b.args[fv.Addr().Interface()] != nil {
+		aa := []string{}
+		for name, arg := range b.args[fv.Addr().Interface()] {
+			// FIXME: %v is not correct, must use JSON
+			aa = append(aa, fmt.Sprintf("%s: %v", b.toName(name), arg.argValue()))
+		}
+		args = "(" + strings.Join(aa, ", ") + ")"
+	}
+	return args
 }
