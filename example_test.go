@@ -29,10 +29,14 @@ type complexExample struct {
 	} `graphql:"aliasof=hero"` // use "aliasof=" tag to use alias
 
 	Hero struct {
-		Name        string
-		DroidFields `graphql:"... on Droid"` // use embedding and "..." tag to build inline fragments query
-		HumanFields `graphql:"... on Human"`
-		Friends     []struct {
+		Name string
+
+		// use embedding and "..." tag to build inline fragments query
+		DroidFields `graphql:"... on Droid"`
+		// or "..." for a field
+		Height int `graphql:"... on Human"`
+
+		Friends []struct {
 			Name string
 		} `graphql:"@include(if: $withFriends)"` // directives
 	} `graphql:"(episode: $ep)"` // you can use "(..)" tag to specify arguments
@@ -46,10 +50,6 @@ type complexExample struct {
 
 type DroidFields struct {
 	PrimaryFunction string
-}
-
-type HumanFields struct {
-	Height int
 }
 
 type Episode string // string types starting with capital letter are treated as custom types (TODO: custom object types, etc)

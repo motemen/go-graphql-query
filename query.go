@@ -259,7 +259,16 @@ func (b builder) writeStructField(w io.Writer, depth int, field reflect.StructFi
 	}
 
 	if fragment != "" {
-		fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), fragment, directive)
+		if field.Anonymous {
+			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), fragment, directive)
+		} else {
+			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), fragment, directive)
+			copyField := field
+			copyField.Tag = ""
+			err := b.writeStructField(w, depth+1, copyField, value)
+			fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
+			return err
+		}
 	} else {
 		fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), name, args, directive)
 	}
@@ -298,8 +307,15 @@ func (b builder) writeSimpleField(w io.Writer, depth int, field reflect.StructFi
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, reflect.Value{})
 		directive = b.directiveStringForField(field, reflect.Value{})
+		fragment  = getTagWithPrefix(field, "...")
 	)
-	fmt.Fprintf(w, "%s%s%s%s\n", strings.Repeat(" ", depth*2), name, args, directive)
+	if fragment != "" {
+		fmt.Fprintf(w, "%s%s {\n", strings.Repeat(" ", depth*2), fragment)
+		fmt.Fprintf(w, "%s%s%s%s\n", strings.Repeat(" ", (depth+1)*2), name, args, directive)
+		fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
+	} else {
+		fmt.Fprintf(w, "%s%s%s%s\n", strings.Repeat(" ", depth*2), name, args, directive)
+	}
 }
 
 func (b builder) toString(w io.Writer, v interface{}, depth int) error {
