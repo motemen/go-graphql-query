@@ -124,3 +124,24 @@ func TestParseTags(t *testing.T) {
 		}
 	}
 }
+
+func TestBuilder_ToName(t *testing.T) {
+	var b builder
+	tests := []struct {
+		in  string
+		out string
+	}{
+		{"Foo", "foo"},
+		{"FooBar", "fooBar"},
+		{"URL", "url"},
+		{"URLIn", "urlIn"},
+		{"XMLName", "xmlName"},
+		{"fooBar", "fooBar"},
+	}
+
+	for _, test := range tests {
+		if got := fmt.Sprintf("%v", b.toName(test.in)); got != test.out {
+			t.Errorf("expected %v but got %v", test.out, got)
+		}
+	}
+}

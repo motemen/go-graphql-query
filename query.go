@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -150,6 +151,7 @@ func (b *builder) queryArguments() (string, error) {
 	if len(args) == 0 {
 		return "", nil
 	}
+	sort.Strings(args)
 	return "(" + strings.Join(args, ", ") + ")", nil
 }
 
@@ -288,7 +290,14 @@ func (b builder) writeStructField(w io.Writer, depth int, field reflect.StructFi
 }
 
 func (b builder) nameForField(field reflect.StructField) string {
-	name := b.toName(field.Name) // TODO: use json:"name" tag
+	name := field.Tag.Get("json")
+	if p := strings.Index(name, ","); p != -1 {
+		name = name[0:p]
+	}
+
+	if name == "" {
+		name = b.toName(field.Name)
+	}
 
 	aliasOf := getTagNamed(field, "aliasof")
 	if aliasOf != "" {
@@ -357,7 +366,18 @@ func (b builder) toString(w io.Writer, v interface{}, depth int) error {
 }
 
 func (b builder) toName(name string) string {
-	return strings.ToLower(name[0:1]) + name[1:]
+	for i, r := range name {
+		if i == 0 {
+			continue
+		}
+		if i == 1 && !unicode.IsUpper(r) {
+			return strings.ToLower(name[0:i]) + name[i:]
+		}
+		if !unicode.IsUpper(r) {
+			return strings.ToLower(name[0:i-1]) + name[i-1:]
+		}
+	}
+	return strings.ToLower(name)
 }
 
 func reflectStruct(rv reflect.Value) (reflect.Value, bool) {
@@ -387,6 +407,7 @@ func (b builder) argsStringForField(field reflect.StructField, fv reflect.Value)
 			// FIXME: %v is not correct, must use JSON
 			aa = append(aa, fmt.Sprintf("%s: %v", b.toName(name), arg.argValue()))
 		}
+		sort.Strings(aa)
 		args = "(" + strings.Join(aa, ", ") + ")"
 	} else if tag := getTag(field, 0); strings.HasPrefix(tag, "(") && strings.HasSuffix(tag, ")") {
 		args = tag
