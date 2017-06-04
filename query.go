@@ -276,7 +276,13 @@ func (b builder) writeStructField(w io.Writer, depth int, field reflect.StructFi
 	}
 
 	var i interface{}
-	if value.CanAddr() {
+	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			i = reflect.New(value.Type().Elem()).Interface()
+		} else {
+			i = value.Interface()
+		}
+	} else if value.CanAddr() {
 		i = value.Addr().Interface()
 	} else {
 		i = value.Interface()

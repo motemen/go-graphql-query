@@ -85,6 +85,15 @@ type HumanFields struct {
 	Height int
 }
 
+type withPointers struct {
+	EmpireHero *struct {
+		Name string
+	} `graphql:"aliasof=hero,(episode: EMPIRE)"`
+	JediHero *struct {
+		Name string
+	} `graphql:"aliasof=hero,(episode: JEDI)"`
+}
+
 func TestToString(t *testing.T) {
 	tests := []interface{}{
 		&simple{},
@@ -94,6 +103,7 @@ func TestToString(t *testing.T) {
 		&withAliases{},
 		&withVariables{},
 		&withInlineFragments{},
+		&withPointers{},
 	}
 
 	for _, test := range tests {
