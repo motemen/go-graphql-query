@@ -17,7 +17,7 @@ import (
     "github.com/motemen/go-graphql-query"
 )
 
-// a struct simply generates GraphQL query generating the result
+// A struct simply generates GraphQL query generating the result
 // suitable for the struct
 type simpleExample struct {
     Hero struct {
@@ -29,32 +29,33 @@ type simpleExample struct {
 }
 
 type complexExample struct {
-    EmpireHero struct {
-        // arguments can be specified by the special field GraphQLArguments
-        // or "(..)" tag (see Hero below)
-        GraphQLArguments struct {
-            // arguments in GraphQLArguments are automatically shown in the query arguments
-            Episode Episode `graphql:"$ep"`
-        }
-        Name string
-    }   `graphql:"aliasof=hero"` // use "aliasof=" tag to use alias
-
     Hero struct {
         Name string
 
-        // use embedding and "..." tag to build inline fragments query
+        // Use embedding and "..." tag to build inline fragments query
         DroidFields `graphql:"... on Droid"`
         // or "..." for a field
         Height int `graphql:"... on Human"`
 
         Friends []struct {
             Name string
-        }   `graphql:"@include(if: $withFriends)"` // directives
-    }   `graphql:"(episode: $ep)"` // you can use "(..)" tag to specify arguments
+        }   `graphql:"@include(if: $withFriends)"` // Directives
+    }   `graphql:"(episode: $ep)"` // Use "(..)" tag to specify arguments
+
+    EmpireHero struct {
+        // Arguments also can be specified by the special field GraphQLArguments
+        GraphQLArguments struct {
+            // Arguments in GraphQLArguments are automatically shown in the query arguments
+            Episode Episode `graphql:"$ep"`
+        }
+        Name string
+    }   `graphql:"aliasof=hero"` // use "aliasof=" tag to use alias
 
     // GraphQLArguments at toplevel stands for query arguments
     GraphQLArguments struct {
-        // should include arguments appeared in struct tags
+        // Should include arguments appeared in struct tags
+        // Variables appeared in GraphQLArguments ($ep in EmpireHero) are
+        // automatically shown in the query arguments
         WithFriends bool `graphql:"$withFriends,notnull"`
     }
 }
@@ -63,7 +64,9 @@ type DroidFields struct {
     PrimaryFunction string
 }
 
-type Episode string // string types starting with capital letter are treated as custom types (TODO: custom object types, etc)
+// Types starting with capital letter are treated as custom types
+// TODO: more configurable way to assign Go types to GraphQL type names
+type Episode string
 
 func main() {
     s, _ := graphqlquery.Build(&simpleExample{})
@@ -85,9 +88,6 @@ query {
   }
 }
 query($ep: Episode, $withFriends: Boolean!) {
-  empireHero: hero(episode: $ep) {
-    name
-  }
   hero(episode: $ep) {
     name
     ... on Droid {
@@ -99,6 +99,9 @@ query($ep: Episode, $withFriends: Boolean!) {
     friends @include(if: $withFriends) {
       name
     }
+  }
+  empireHero: hero(episode: $ep) {
+    name
   }
 }
 ```
