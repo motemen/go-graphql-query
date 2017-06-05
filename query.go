@@ -11,6 +11,8 @@ import (
 	"unicode"
 )
 
+const argumentsFieldName = "GraphQLArguments"
+
 // Build makes GraphQL query suitable for q, which is also
 // a result JSON object for the GraphQL result JSON.
 // See the example.
@@ -19,32 +21,16 @@ func Build(q interface{}) ([]byte, error) {
 		query: q,
 	}
 
-	err := b.scan()
-	if err != nil {
-		return nil, err
-	}
-
 	return b.build()
 }
 
 type builder struct {
 	query interface{}
-	args  map[interface{}]map[string]argSpec
+	args  []argSpec
 }
 
 type argSpec struct {
 	field reflect.StructField
-	value reflect.Value
-	path  []string
-}
-
-func (a argSpec) argValue() interface{} {
-	value := getTag(a.field, 0)
-	if value != "" {
-		return value
-	}
-
-	return a.value.Interface()
 }
 
 func (a argSpec) variableName() string {
@@ -70,16 +56,16 @@ func getTagWithPrefix(field reflect.StructField, prefix string) string {
 	return ""
 }
 
-func getTagNamed(f reflect.StructField, name string) string {
-	tags := parseTags(f.Tag.Get("graphql"))
-	for _, tag := range tags {
-		if strings.HasPrefix(tag, name+"=") {
-			return tag[len(name+"="):]
-		}
+func getTagNamed(field reflect.StructField, name string) string {
+	s := getTagWithPrefix(field, name+"=")
+	if s != "" {
+		s = s[len(name)+1:]
 	}
-	return ""
+	return s
 }
 
+// parseTags parses struct tags, with parenthesis aware.
+// see TestParseTags.
 func parseTags(s string) []string {
 	tags := strings.Split(s, ",")
 TAGS:
@@ -114,39 +100,30 @@ TAGS:
 	return tags
 }
 
-func (b *builder) scan() error {
-	rv, ok := reflectStruct(reflect.ValueOf(b.query))
-	if !ok {
-		return fmt.Errorf("must be a struct or a pointer to struct %+v", b.query)
-	}
-
-	b.scanStruct(rv, reflect.Value{}, []string{})
-
-	return nil
-}
-
 func (b *builder) queryArguments() (string, error) {
 	args := []string{}
-	for _, names := range b.args {
-		for name, spec := range names {
-			varName := spec.variableName()
-			if varName == "" {
-				continue
-			}
-			typeName, err := b.typeName(spec.field.Type)
-			if err != nil {
-				path := strings.Join(spec.path, ".")
-				if path == "" {
-					path = "(root)"
-				}
-				return "", fmt.Errorf("argument %q at %s: %s", name, path, err)
-			}
-			param := fmt.Sprintf("%s: %s", varName, typeName)
-			if getTag(spec.field, 1) == "notnull" {
-				param += "!"
-			}
-			args = append(args, param)
+
+	if argsStruct := argumentsStruct(reflect.ValueOf(b.query)); argsStruct.IsValid() {
+		argsStructType := argsStruct.Type()
+		for i := 0; i < argsStructType.NumField(); i++ {
+			b.addArg(argsStructType.Field(i))
 		}
+	}
+
+	for _, spec := range b.args {
+		varName := spec.variableName()
+		if varName == "" {
+			continue
+		}
+		typeName, err := b.typeName(spec.field.Type)
+		if err != nil {
+			return "", err
+		}
+		param := fmt.Sprintf("%s: %s", varName, typeName)
+		if getTag(spec.field, 1) == "notnull" {
+			param += "!"
+		}
+		args = append(args, param)
 	}
 	if len(args) == 0 {
 		return "", nil
@@ -183,72 +160,40 @@ func (b *builder) typeName(rt reflect.Type) (string, error) {
 	return "", fmt.Errorf("could not find type name for %s", rt.Name())
 }
 
-func (b *builder) scanStruct(rv, parent reflect.Value, path []string) {
-	rt := rv.Type()
-	for i := 0; i < rv.NumField(); i++ {
-		ft := rt.Field(i)
-		fv, ok := reflectStruct(rv.Field(i))
-		if !ok {
-			continue
-		}
-
-		if isArgumentsField(ft) {
-			for i := 0; i < fv.NumField(); i++ {
-				b.addArg(
-					rv.Addr().Interface(),
-					ft.Type.Field(i),
-					fv.Field(i),
-					path,
-				)
-			}
-
-			continue
-		}
-
-		newPath := make([]string, len(path)+1)
-		copy(newPath, path)
-		newPath[len(newPath)-1] = ft.Name
-
-		b.scanStruct(fv, rv, newPath)
-	}
-}
-
-func (b *builder) addArg(node interface{}, field reflect.StructField, value reflect.Value, path []string) {
-	if b.args == nil {
-		b.args = map[interface{}]map[string]argSpec{}
-	}
-	if b.args[node] == nil {
-		b.args[node] = map[string]argSpec{}
-	}
-
-	b.args[node][field.Name] = argSpec{
-		field: field,
-		value: value,
-		path:  path,
-	}
+func (b *builder) addArg(field reflect.StructField) {
+	b.args = append(b.args, argSpec{field})
 }
 
 func isArgumentsField(t reflect.StructField) bool {
-	if t.Name == "GraphQLArguments" {
+	if t.Name == argumentsFieldName {
 		return true
 	}
 
 	return false
 }
 
-func (b builder) build() ([]byte, error) {
+func (b *builder) build() ([]byte, error) {
 	var buf bytes.Buffer
+	fmt.Fprintf(&buf, " {\n")
+
+	err := b.toString(&buf, b.query, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Fprintf(&buf, "}")
+
 	args, err := b.queryArguments()
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(&buf, "query%s {\n", args)
-	err = b.toString(&buf, b.query, 1)
-	fmt.Fprintf(&buf, "}")
-	return buf.Bytes(), err
+	return append(
+		[]byte("query"+args),
+		buf.Bytes()...,
+	), nil
 }
 
-func (b builder) writeStructField(w io.Writer, depth int, field reflect.StructField, value reflect.Value) error {
+func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructField, value reflect.Value) error {
 	var (
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, value)
@@ -295,7 +240,7 @@ func (b builder) writeStructField(w io.Writer, depth int, field reflect.StructFi
 	return err
 }
 
-func (b builder) nameForField(field reflect.StructField) string {
+func (b *builder) nameForField(field reflect.StructField) string {
 	name := field.Tag.Get("json")
 	if p := strings.Index(name, ","); p != -1 {
 		name = name[0:p]
@@ -313,11 +258,11 @@ func (b builder) nameForField(field reflect.StructField) string {
 	return name
 }
 
-func (b builder) directiveStringForField(field reflect.StructField, value reflect.Value) string {
+func (b *builder) directiveStringForField(field reflect.StructField, value reflect.Value) string {
 	return getTagWithPrefix(field, "@")
 }
 
-func (b builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
+func (b *builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
 	var (
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, reflect.Value{})
@@ -333,7 +278,7 @@ func (b builder) writeSimpleField(w io.Writer, depth int, field reflect.StructFi
 	}
 }
 
-func (b builder) toString(w io.Writer, v interface{}, depth int) error {
+func (b *builder) toString(w io.Writer, v interface{}, depth int) error {
 	rv, ok := reflectStruct(reflect.ValueOf(v))
 	if !ok {
 		return fmt.Errorf("invalid value: %+v", v)
@@ -371,7 +316,7 @@ func (b builder) toString(w io.Writer, v interface{}, depth int) error {
 	return nil
 }
 
-func (b builder) toName(name string) string {
+func (b *builder) toName(name string) string {
 	for i, r := range name {
 		if i == 0 {
 			continue
@@ -405,18 +350,35 @@ func isKindOf(rt reflect.Type, kind reflect.Kind) bool {
 	return false
 }
 
-func (b builder) argsStringForField(field reflect.StructField, fv reflect.Value) string {
-	args := ""
-	if fv.CanAddr() && b.args[fv.Addr().Interface()] != nil {
+func (b *builder) argsStringForField(field reflect.StructField, value reflect.Value) string {
+	if argsStruct := argumentsStruct(value); argsStruct.IsValid() {
+		argsStructType := argsStruct.Type()
 		aa := []string{}
-		for name, arg := range b.args[fv.Addr().Interface()] {
-			// FIXME: %v is not correct, must use JSON
-			aa = append(aa, fmt.Sprintf("%s: %v", b.toName(name), arg.argValue()))
+		for i := 0; i < argsStructType.NumField(); i++ {
+			field := argsStructType.Field(i)
+			aa = append(aa, fmt.Sprintf("%s: %v", b.toName(field.Name), getTag(field, 0)))
+			b.addArg(field)
 		}
 		sort.Strings(aa)
-		args = "(" + strings.Join(aa, ", ") + ")"
-	} else if tag := getTagWithPrefix(field, "("); tag != "" {
-		args = tag
+		return "(" + strings.Join(aa, ", ") + ")"
 	}
-	return args
+
+	if tag := getTagWithPrefix(field, "("); tag != "" {
+		return tag
+	}
+
+	return ""
+}
+
+func argumentsStruct(value reflect.Value) reflect.Value {
+	if rv, ok := reflectStruct(value); ok {
+		argsField := rv.FieldByName(argumentsFieldName)
+		if argsField.IsValid() {
+			if rv, ok := reflectStruct(argsField); ok {
+				return rv
+			}
+		}
+	}
+
+	return reflect.Value{}
 }
