@@ -100,13 +100,24 @@ TAGS:
 	return tags
 }
 
+// queryArguments builds arguments for the query itself.
+//
+// Arguments for each fields are collected during toString() and ones with
+// variable name assigned are included in the resulting arguments.
+//
+// Also, the special field named GraphQLArguments at the toplevel of the struct
+// query is concidered as the arguments for the GraphQL query.
+//
+// In both ways, the types of the fields are treated as the types of the
+// arguments in the GraphQL query.
 func (b *builder) queryArguments() (string, error) {
 	args := []string{}
 
 	if argsStruct := argumentsStruct(reflect.ValueOf(b.query)); argsStruct.IsValid() {
 		argsStructType := argsStruct.Type()
 		for i := 0; i < argsStructType.NumField(); i++ {
-			b.addArg(argsStructType.Field(i))
+			field := argsStructType.Field(i)
+			b.args = append(b.args, argSpec{field})
 		}
 	}
 
@@ -125,13 +136,23 @@ func (b *builder) queryArguments() (string, error) {
 		}
 		args = append(args, param)
 	}
+
 	if len(args) == 0 {
 		return "", nil
 	}
+
 	sort.Strings(args)
+
 	return "(" + strings.Join(args, ", ") + ")", nil
 }
 
+// typeName returns a type name in GraphQL representinge the given type rt.
+//
+// If the type is a named type and its name starts with capital, the names is
+// used in GraphQL query.
+//
+// TODO: more configurable way to convert Go types to GraphQL types
+//       maybe graphqlquery.RegisterType(&someType{}, "SomeType")?
 func (b *builder) typeName(rt reflect.Type) (string, error) {
 	if rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()
@@ -160,18 +181,6 @@ func (b *builder) typeName(rt reflect.Type) (string, error) {
 	return "", fmt.Errorf("could not find type name for %s", rt.Name())
 }
 
-func (b *builder) addArg(field reflect.StructField) {
-	b.args = append(b.args, argSpec{field})
-}
-
-func isArgumentsField(t reflect.StructField) bool {
-	if t.Name == argumentsFieldName {
-		return true
-	}
-
-	return false
-}
-
 func (b *builder) build() ([]byte, error) {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, " {\n")
@@ -187,17 +196,15 @@ func (b *builder) build() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(
-		[]byte("query"+args),
-		buf.Bytes()...,
-	), nil
+
+	return append([]byte("query"+args), buf.Bytes()...), nil
 }
 
 func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructField, value reflect.Value) error {
 	var (
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, value)
-		directive = b.directiveStringForField(field, value)
+		directive = b.directiveStringForField(field)
 		fragment  = getTagWithPrefix(field, "...")
 	)
 
@@ -207,8 +214,18 @@ func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructF
 
 	if fragment != "" {
 		if field.Anonymous {
+			// The embedded struct fields are expanded in the fragment body
+			//
+			//   ... on Human {
 			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), fragment, directive)
 		} else {
+			// The struct fields with its name are shown in the fragment
+			//
+			//   ... on Human {
+			//     friend {
+			//       name
+			//     }
+			//   }
 			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), fragment, directive)
 			copyField := field
 			copyField.Tag = ""
@@ -217,9 +234,11 @@ func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructF
 			return err
 		}
 	} else {
+		// hero(ep: EMPIRE) {
 		fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), name, args, directive)
 	}
 
+	// Create a value for deeper recursion
 	var i interface{}
 	if value.Kind() == reflect.Ptr {
 		if value.IsNil() {
@@ -258,15 +277,44 @@ func (b *builder) nameForField(field reflect.StructField) string {
 	return name
 }
 
-func (b *builder) directiveStringForField(field reflect.StructField, value reflect.Value) string {
+func (b *builder) directiveStringForField(field reflect.StructField) string {
 	return getTagWithPrefix(field, "@")
+}
+
+// argsStringForField returns GraphQL arguments string for given struct field.
+//
+// If the field is a struct and has a special struct field named GraphQLArguments,
+// the struct's fields are treated as arguments.
+//
+// Otherwise, struct tag of "(...)" form is use as arguments as is.
+// eg. `graphql:"(episode: EMPIRE, id: \"1\")"`
+func (b *builder) argsStringForField(field reflect.StructField, value reflect.Value) string {
+	if argsStruct := argumentsStruct(value); argsStruct.IsValid() {
+		argsStructType := argsStruct.Type()
+
+		aa := []string{}
+		for i := 0; i < argsStructType.NumField(); i++ {
+			field := argsStructType.Field(i)
+			b.args = append(b.args, argSpec{field})
+			aa = append(aa, fmt.Sprintf("%s: %v", b.toName(field.Name), getTag(field, 0)))
+		}
+		sort.Strings(aa)
+
+		return "(" + strings.Join(aa, ", ") + ")"
+	}
+
+	if tag := getTagWithPrefix(field, "("); tag != "" {
+		return tag
+	}
+
+	return ""
 }
 
 func (b *builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
 	var (
 		name      = b.nameForField(field)
 		args      = b.argsStringForField(field, reflect.Value{})
-		directive = b.directiveStringForField(field, reflect.Value{})
+		directive = b.directiveStringForField(field)
 		fragment  = getTagWithPrefix(field, "...")
 	)
 	if fragment != "" {
@@ -279,15 +327,15 @@ func (b *builder) writeSimpleField(w io.Writer, depth int, field reflect.StructF
 }
 
 func (b *builder) toString(w io.Writer, v interface{}, depth int) error {
-	rv, ok := reflectStruct(reflect.ValueOf(v))
-	if !ok {
+	rv := reflectStruct(reflect.ValueOf(v))
+	if !rv.IsValid() {
 		return fmt.Errorf("invalid value: %+v", v)
 	}
 
 	rt := rv.Type()
 	for i := 0; i < rv.NumField(); i++ {
 		field := rt.Field(i)
-		if isArgumentsField(field) {
+		if field.Name == argumentsFieldName {
 			continue
 		}
 
@@ -331,12 +379,16 @@ func (b *builder) toName(name string) string {
 	return strings.ToLower(name)
 }
 
-func reflectStruct(rv reflect.Value) (reflect.Value, bool) {
+func reflectStruct(rv reflect.Value) reflect.Value {
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
 	}
 
-	return rv, rv.Kind() == reflect.Struct
+	if rv.Kind() == reflect.Struct {
+		return rv
+	}
+
+	return reflect.Value{}
 }
 
 func isKindOf(rt reflect.Type, kind reflect.Kind) bool {
@@ -350,34 +402,9 @@ func isKindOf(rt reflect.Type, kind reflect.Kind) bool {
 	return false
 }
 
-func (b *builder) argsStringForField(field reflect.StructField, value reflect.Value) string {
-	if argsStruct := argumentsStruct(value); argsStruct.IsValid() {
-		argsStructType := argsStruct.Type()
-		aa := []string{}
-		for i := 0; i < argsStructType.NumField(); i++ {
-			field := argsStructType.Field(i)
-			aa = append(aa, fmt.Sprintf("%s: %v", b.toName(field.Name), getTag(field, 0)))
-			b.addArg(field)
-		}
-		sort.Strings(aa)
-		return "(" + strings.Join(aa, ", ") + ")"
-	}
-
-	if tag := getTagWithPrefix(field, "("); tag != "" {
-		return tag
-	}
-
-	return ""
-}
-
 func argumentsStruct(value reflect.Value) reflect.Value {
-	if rv, ok := reflectStruct(value); ok {
-		argsField := rv.FieldByName(argumentsFieldName)
-		if argsField.IsValid() {
-			if rv, ok := reflectStruct(argsField); ok {
-				return rv
-			}
-		}
+	if rv := reflectStruct(value); rv.IsValid() {
+		return reflectStruct(rv.FieldByName(argumentsFieldName))
 	}
 
 	return reflect.Value{}
