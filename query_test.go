@@ -2,6 +2,7 @@ package graphqlquery
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -10,6 +11,13 @@ type simple struct {
 		Name string
 	}
 }
+
+var simpleQuery = `
+query {
+  hero {
+    name
+  }
+}`
 
 type withArguments struct {
 	Human struct {
@@ -21,12 +29,28 @@ type withArguments struct {
 	}
 }
 
+var withArgumentsQuery = `
+query {
+  human(id: "1000") {
+    name
+    height
+  }
+}`
+
 type withArguments2 struct {
 	Human struct {
 		Name   string
 		Height int
 	} `graphql:"(id: \"1000\")"`
 }
+
+var withArguments2Query = `
+query {
+  human(id: "1000") {
+    name
+    height
+  }
+}`
 
 type withArgumentsScalar struct {
 	Human struct {
@@ -37,6 +61,14 @@ type withArgumentsScalar struct {
 		Height int `graphql:"(unit: FOOT)"`
 	}
 }
+
+var withArgumentsScalarQuery = `
+query {
+  human(id: "1000") {
+    name
+    height(unit: FOOT)
+  }
+}`
 
 type withAliases struct {
 	EmpireHero struct {
@@ -55,6 +87,16 @@ type withAliases struct {
 
 type Episode string
 
+var withAliasesQuery = `
+query {
+  empireHero: hero(episode: EMPIRE) {
+    name
+  }
+  jediHero: hero(episode: JEDI) {
+    name
+  }
+}`
+
 type withVariables struct {
 	Hero struct {
 		GraphQLArguments struct {
@@ -65,6 +107,15 @@ type withVariables struct {
 		}
 	}
 }
+
+var withVariablesQuery = `
+query($episode: Episode) {
+  hero(episode: $episode) {
+    friends {
+      name
+    }
+  }
+}`
 
 type withInlineFragments struct {
 	GraphQLArguments struct {
@@ -85,6 +136,19 @@ type HumanFields struct {
 	Height int
 }
 
+var withInlineFragmentsQuery = `
+query($ep: Episode!) {
+  hero(episode: $ep) {
+    name
+    ... on Droid {
+      primaryFunction
+    }
+    ... on Human {
+      height
+    }
+  }
+}`
+
 type withPointers struct {
 	EmpireHero *struct {
 		Name string
@@ -94,25 +158,40 @@ type withPointers struct {
 	} `graphql:"aliasof=hero,(episode: JEDI)"`
 }
 
+var withPointersQuery = `
+query {
+  empireHero: hero(episode: EMPIRE) {
+    name
+  }
+  jediHero: hero(episode: JEDI) {
+    name
+  }
+}`
+
 func TestToString(t *testing.T) {
-	tests := []interface{}{
-		&simple{},
-		&withArguments{},
-		&withArguments2{},
-		&withArgumentsScalar{},
-		&withAliases{},
-		&withVariables{},
-		&withInlineFragments{},
-		&withPointers{},
+	tests := []struct {
+		query  interface{}
+		result string
+	}{
+		{&simple{}, simpleQuery},
+		{&withArguments{}, withArgumentsQuery},
+		{&withArguments2{}, withArguments2Query},
+		{&withArgumentsScalar{}, withArgumentsScalarQuery},
+		{&withAliases{}, withAliasesQuery},
+		{&withVariables{}, withVariablesQuery},
+		{&withInlineFragments{}, withInlineFragmentsQuery},
+		{&withPointers{}, withPointersQuery},
 	}
 
 	for _, test := range tests {
-		s, err := Build(test)
+		s, err := Build(test.query)
 		if err != nil {
 			t.Error(err)
 			continue
 		}
-		t.Log(string(s))
+		if expected := strings.TrimSpace(test.result); string(s) != expected {
+			t.Errorf("===== got:\n%s\n===== but expected:\n%s\n", string(s), expected)
+		}
 	}
 }
 

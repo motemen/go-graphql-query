@@ -415,7 +415,7 @@ func (b builder) argsStringForField(field reflect.StructField, fv reflect.Value)
 		}
 		sort.Strings(aa)
 		args = "(" + strings.Join(aa, ", ") + ")"
-	} else if tag := getTag(field, 0); strings.HasPrefix(tag, "(") && strings.HasSuffix(tag, ")") {
+	} else if tag := getTagWithPrefix(field, "("); tag != "" {
 		args = tag
 	}
 	return args
