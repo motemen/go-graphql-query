@@ -160,6 +160,10 @@ func (b *builder) typeName(rt reflect.Type) (string, error) {
 		rt = rt.Elem()
 	}
 
+	if unicode.IsUpper(rune(rt.Name()[0])) {
+		return rt.Name(), nil
+	}
+
 	switch rt.Kind() {
 	case reflect.Array, reflect.Slice:
 		name, err := b.typeName(rt.Elem())
@@ -173,10 +177,6 @@ func (b *builder) typeName(rt reflect.Type) (string, error) {
 	case reflect.Ptr:
 		return b.typeName(rt.Elem())
 	case reflect.String:
-		if unicode.IsUpper(rune(rt.Name()[0])) {
-			// enum
-			return rt.Name(), nil
-		}
 		return "String", nil
 	}
 
