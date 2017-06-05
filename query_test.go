@@ -19,7 +19,7 @@ query {
   }
 }`
 
-type withArguments struct {
+type arguments struct {
 	Human struct {
 		GraphQLArguments struct {
 			Id string `graphql:"\"1000\""`
@@ -29,7 +29,7 @@ type withArguments struct {
 	}
 }
 
-var withArgumentsQuery = `
+var argumentsQuery = `
 query {
   human(id: "1000") {
     name
@@ -37,14 +37,14 @@ query {
   }
 }`
 
-type withArguments2 struct {
+type arguments2 struct {
 	Human struct {
 		Name   string
 		Height int
 	} `graphql:"(id: \"1000\")"`
 }
 
-var withArguments2Query = `
+var arguments2Query = `
 query {
   human(id: "1000") {
     name
@@ -52,7 +52,7 @@ query {
   }
 }`
 
-type withArgumentsScalar struct {
+type argumentsScalar struct {
 	Human struct {
 		GraphQLArguments struct {
 			Id string `graphql:"\"1000\""`
@@ -62,7 +62,7 @@ type withArgumentsScalar struct {
 	}
 }
 
-var withArgumentsScalarQuery = `
+var argumentsScalarQuery = `
 query {
   human(id: "1000") {
     name
@@ -70,7 +70,7 @@ query {
   }
 }`
 
-type withAliases struct {
+type aliases struct {
 	EmpireHero struct {
 		GraphQLArguments struct {
 			Episode string `graphql:"EMPIRE"`
@@ -87,7 +87,7 @@ type withAliases struct {
 
 type Episode string
 
-var withAliasesQuery = `
+var aliasesQuery = `
 query {
   empireHero: hero(episode: EMPIRE) {
     name
@@ -97,7 +97,7 @@ query {
   }
 }`
 
-type withVariables struct {
+type variables struct {
 	Hero struct {
 		GraphQLArguments struct {
 			Episode Episode `graphql:"$episode"`
@@ -108,7 +108,7 @@ type withVariables struct {
 	}
 }
 
-var withVariablesQuery = `
+var variablesQuery = `
 query($episode: Episode) {
   hero(episode: $episode) {
     friends {
@@ -117,14 +117,14 @@ query($episode: Episode) {
   }
 }`
 
-type withInlineFragments struct {
+type inlineFragments struct {
 	GraphQLArguments struct {
 		Episode Episode `graphql:"$ep,notnull"`
 	}
 	Hero struct {
 		Name        string
 		DroidFields `graphql:"... on Droid"`
-		HumanFields `graphql:"... on Human"`
+		Height      int `graphql:"... on Human"`
 	} `graphql:"(episode: $ep)"`
 }
 
@@ -132,11 +132,7 @@ type DroidFields struct {
 	PrimaryFunction string
 }
 
-type HumanFields struct {
-	Height int
-}
-
-var withInlineFragmentsQuery = `
+var inlineFragmentsQuery = `
 query($ep: Episode!) {
   hero(episode: $ep) {
     name
@@ -149,7 +145,7 @@ query($ep: Episode!) {
   }
 }`
 
-type withPointers struct {
+type pointers struct {
 	EmpireHero *struct {
 		Name string
 	} `graphql:"aliasof=hero,(episode: EMPIRE)"`
@@ -158,12 +154,25 @@ type withPointers struct {
 	} `graphql:"aliasof=hero,(episode: JEDI)"`
 }
 
-var withPointersQuery = `
+var pointersQuery = `
 query {
   empireHero: hero(episode: EMPIRE) {
     name
   }
   jediHero: hero(episode: JEDI) {
+    name
+  }
+}`
+
+type jsonTag struct {
+	HeroObject struct {
+		Name string
+	} `json:"hero"`
+}
+
+var jsonTagQuery = `
+query {
+  hero {
     name
   }
 }`
@@ -174,13 +183,14 @@ func TestToString(t *testing.T) {
 		result string
 	}{
 		{&simple{}, simpleQuery},
-		{&withArguments{}, withArgumentsQuery},
-		{&withArguments2{}, withArguments2Query},
-		{&withArgumentsScalar{}, withArgumentsScalarQuery},
-		{&withAliases{}, withAliasesQuery},
-		{&withVariables{}, withVariablesQuery},
-		{&withInlineFragments{}, withInlineFragmentsQuery},
-		{&withPointers{}, withPointersQuery},
+		{&arguments{}, argumentsQuery},
+		{&arguments2{}, arguments2Query},
+		{&argumentsScalar{}, argumentsScalarQuery},
+		{&aliases{}, aliasesQuery},
+		{&variables{}, variablesQuery},
+		{&inlineFragments{}, inlineFragmentsQuery},
+		{&pointers{}, pointersQuery},
+		{&jsonTag{}, jsonTagQuery},
 	}
 
 	for _, test := range tests {
