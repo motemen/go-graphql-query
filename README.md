@@ -2,7 +2,7 @@
 
 [![GoDoc](https://godoc.org/github.com/motemen/go-graphql-query?status.svg)](https://godoc.org/github.com/motemen/go-graphql-query)
 
-package graphqlquery generates GraphQL queries from the result structs.
+Package graphqlquery generates GraphQL queries from the result structs.
 
 ## Examples
 

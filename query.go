@@ -1,4 +1,4 @@
-// package graphqlquery generates GraphQL queries from the result structs.
+// Package graphqlquery generates GraphQL queries from the result structs.
 package graphqlquery
 
 import (

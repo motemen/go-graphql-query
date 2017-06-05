@@ -22,7 +22,7 @@ query {
 type arguments struct {
 	Human struct {
 		GraphQLArguments struct {
-			Id string `graphql:"\"1000\""`
+			ID string `graphql:"\"1000\""`
 		}
 		Name   string
 		Height int
@@ -55,7 +55,7 @@ query {
 type argumentsScalar struct {
 	Human struct {
 		GraphQLArguments struct {
-			Id string `graphql:"\"1000\""`
+			ID string `graphql:"\"1000\""`
 		}
 		Name   string
 		Height int `graphql:"(unit: FOOT)"`
