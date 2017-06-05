@@ -113,8 +113,7 @@ TAGS:
 func (b *builder) queryArguments() (string, error) {
 	args := []string{}
 
-	if argsStruct := argumentsStruct(reflect.ValueOf(b.query)); argsStruct.IsValid() {
-		argsStructType := argsStruct.Type()
+	if argsStructType := argumentsStructType(reflect.TypeOf(b.query)); argsStructType != nil {
 		for i := 0; i < argsStructType.NumField(); i++ {
 			field := argsStructType.Field(i)
 			b.args = append(b.args, argSpec{field})
@@ -185,7 +184,7 @@ func (b *builder) build() ([]byte, error) {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, " {\n")
 
-	err := b.toString(&buf, b.query, 1)
+	err := b.toString(&buf, reflect.TypeOf(b.query), 1)
 	if err != nil {
 		return nil, err
 	}
@@ -200,10 +199,10 @@ func (b *builder) build() ([]byte, error) {
 	return append([]byte("query"+args), buf.Bytes()...), nil
 }
 
-func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructField, value reflect.Value) error {
+func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructField) error {
 	var (
 		name      = b.nameForField(field)
-		args      = b.argsStringForField(field, value)
+		args      = b.argsStringForField(field)
 		directive = b.directiveStringForField(field)
 		fragment  = getTagWithPrefix(field, "...")
 	)
@@ -229,7 +228,7 @@ func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructF
 			fmt.Fprintf(w, "%s%s%s {\n", strings.Repeat(" ", depth*2), fragment, directive)
 			copyField := field
 			copyField.Tag = ""
-			err := b.writeStructField(w, depth+1, copyField, value)
+			err := b.writeStructField(w, depth+1, copyField)
 			fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
 			return err
 		}
@@ -238,21 +237,7 @@ func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructF
 		fmt.Fprintf(w, "%s%s%s%s {\n", strings.Repeat(" ", depth*2), name, args, directive)
 	}
 
-	// Create a value for deeper recursion
-	var i interface{}
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			i = reflect.New(value.Type().Elem()).Interface()
-		} else {
-			i = value.Interface()
-		}
-	} else if value.CanAddr() {
-		i = value.Addr().Interface()
-	} else {
-		i = value.Interface()
-	}
-
-	err := b.toString(w, i, depth+1)
+	err := b.toString(w, field.Type, depth+1)
 
 	fmt.Fprintf(w, "%s}\n", strings.Repeat(" ", depth*2))
 
@@ -288,10 +273,8 @@ func (b *builder) directiveStringForField(field reflect.StructField) string {
 //
 // Otherwise, struct tag of "(...)" form is use as arguments as is.
 // eg. `graphql:"(episode: EMPIRE, id: \"1\")"`
-func (b *builder) argsStringForField(field reflect.StructField, value reflect.Value) string {
-	if argsStruct := argumentsStruct(value); argsStruct.IsValid() {
-		argsStructType := argsStruct.Type()
-
+func (b *builder) argsStringForField(field reflect.StructField) string {
+	if argsStructType := argumentsStructType(field.Type); argsStructType != nil {
 		aa := []string{}
 		for i := 0; i < argsStructType.NumField(); i++ {
 			field := argsStructType.Field(i)
@@ -313,7 +296,7 @@ func (b *builder) argsStringForField(field reflect.StructField, value reflect.Va
 func (b *builder) writeSimpleField(w io.Writer, depth int, field reflect.StructField) {
 	var (
 		name      = b.nameForField(field)
-		args      = b.argsStringForField(field, reflect.Value{})
+		args      = b.argsStringForField(field)
 		directive = b.directiveStringForField(field)
 		fragment  = getTagWithPrefix(field, "...")
 	)
@@ -326,39 +309,26 @@ func (b *builder) writeSimpleField(w io.Writer, depth int, field reflect.StructF
 	}
 }
 
-func (b *builder) toString(w io.Writer, v interface{}, depth int) error {
-	rv := reflectStruct(reflect.ValueOf(v))
-	if !rv.IsValid() {
-		return fmt.Errorf("invalid value: %+v", v)
+func (b *builder) toString(w io.Writer, rt reflect.Type, depth int) error {
+	origType, rt := rt, reflectStructType(rt)
+	if rt == nil {
+		return fmt.Errorf("invalid type: %v", origType)
 	}
 
-	rt := rv.Type()
-	for i := 0; i < rv.NumField(); i++ {
+	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		if field.Name == argumentsFieldName {
 			continue
 		}
 
-		value := rv.Field(i)
-		switch {
-		case isKindOf(value.Type(), reflect.Struct):
-			err := b.writeStructField(w, depth, field, value)
+		if ft := reflectStructType(field.Type); ft != nil {
+			err := b.writeStructField(w, depth, field)
 			if err != nil {
 				return err
 			}
-			continue
-
-		case isKindOf(value.Type(), reflect.Slice):
-			if et := value.Type().Elem(); isKindOf(et, reflect.Struct) {
-				err := b.writeStructField(w, depth, field, reflect.New(et))
-				if err != nil {
-					return err
-				}
-				continue
-			}
+		} else {
+			b.writeSimpleField(w, depth, field)
 		}
-
-		b.writeSimpleField(w, depth, field)
 	}
 
 	return nil
@@ -379,33 +349,27 @@ func (b *builder) toName(name string) string {
 	return strings.ToLower(name)
 }
 
-func reflectStruct(rv reflect.Value) reflect.Value {
-	if rv.Kind() == reflect.Ptr {
-		rv = rv.Elem()
+func reflectStructType(rt reflect.Type) reflect.Type {
+	if rt == nil {
+		return rt
 	}
 
-	if rv.Kind() == reflect.Struct {
-		return rv
+	for rt.Kind() == reflect.Ptr || rt.Kind() == reflect.Slice || rt.Kind() == reflect.Array {
+		rt = rt.Elem()
+	}
+	if rt.Kind() == reflect.Struct {
+		return rt
 	}
 
-	return reflect.Value{}
+	return nil
 }
 
-func isKindOf(rt reflect.Type, kind reflect.Kind) bool {
-	k := rt.Kind()
-	if k == kind {
-		return true
-	}
-	if k == reflect.Ptr {
-		return rt.Elem().Kind() == kind
-	}
-	return false
-}
-
-func argumentsStruct(value reflect.Value) reflect.Value {
-	if rv := reflectStruct(value); rv.IsValid() {
-		return reflectStruct(rv.FieldByName(argumentsFieldName))
+func argumentsStructType(rt reflect.Type) reflect.Type {
+	if rt := reflectStructType(rt); rt != nil {
+		if field, ok := rt.FieldByName(argumentsFieldName); ok {
+			return reflectStructType(field.Type)
+		}
 	}
 
-	return reflect.Value{}
+	return nil
 }

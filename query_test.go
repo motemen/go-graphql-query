@@ -169,8 +169,11 @@ query($withFriends: Boolean) {
 
 type pointers struct {
 	EmpireHero *struct {
+		GraphQLArguments struct {
+			Episode string `graphql:"EMPIRE"`
+		}
 		Name string
-	} `graphql:"alias=hero,(episode: EMPIRE)"`
+	} `graphql:"alias=hero"`
 	JediHero *struct {
 		Name string
 	} `graphql:"alias=hero,(episode: JEDI)"`
