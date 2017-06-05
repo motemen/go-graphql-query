@@ -269,9 +269,9 @@ func (b *builder) nameForField(field reflect.StructField) string {
 		name = b.toName(field.Name)
 	}
 
-	aliasOf := getTagNamed(field, "aliasof")
-	if aliasOf != "" {
-		name = name + ": " + aliasOf
+	alias := getTagNamed(field, "alias")
+	if alias != "" {
+		name = name + ": " + alias
 	}
 
 	return name

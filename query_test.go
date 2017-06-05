@@ -20,7 +20,7 @@ query {
 }`
 
 type arguments struct {
-	Human struct {
+	Human []struct {
 		GraphQLArguments struct {
 			ID string `graphql:"\"1000\""`
 		}
@@ -38,7 +38,7 @@ query {
 }`
 
 type arguments2 struct {
-	Human struct {
+	Human []struct {
 		Name   string
 		Height int
 	} `graphql:"(id: \"1000\")"`
@@ -76,16 +76,14 @@ type aliases struct {
 			Episode string `graphql:"EMPIRE"`
 		}
 		Name string
-	} `graphql:"aliasof=hero"`
+	} `graphql:"alias=hero"`
 	JediHero struct {
 		GraphQLArguments struct {
 			Episode string `graphql:"JEDI"`
 		}
 		Name string
-	} `graphql:"aliasof=hero"`
+	} `graphql:"alias=hero"`
 }
-
-type Episode string
 
 var aliasesQuery = `
 query {
@@ -108,6 +106,8 @@ type variables struct {
 	}
 }
 
+type Episode string
+
 var variablesQuery = `
 query($episode: Episode) {
   hero(episode: $episode) {
@@ -123,8 +123,8 @@ type inlineFragments struct {
 	}
 	Hero struct {
 		Name        string
-		DroidFields `graphql:"... on Droid"`
 		Height      int `graphql:"... on Human"`
+		DroidFields `graphql:"... on Droid"`
 	} `graphql:"(episode: $ep)"`
 }
 
@@ -136,11 +136,33 @@ var inlineFragmentsQuery = `
 query($ep: Episode!) {
   hero(episode: $ep) {
     name
+    ... on Human {
+      height
+    }
     ... on Droid {
       primaryFunction
     }
-    ... on Human {
-      height
+  }
+}`
+
+type directives struct {
+	GraphQLArguments struct {
+		WithFriends bool `graphql:"$withFriends"`
+	}
+	Hero struct {
+		Name    string
+		Friends []struct {
+			Name string
+		} `graphql:"@include(if: $withFriends)"`
+	}
+}
+
+var directivesQuery = `
+query($withFriends: Boolean) {
+  hero {
+    name
+    friends @include(if: $withFriends) {
+      name
     }
   }
 }`
@@ -148,10 +170,10 @@ query($ep: Episode!) {
 type pointers struct {
 	EmpireHero *struct {
 		Name string
-	} `graphql:"aliasof=hero,(episode: EMPIRE)"`
+	} `graphql:"alias=hero,(episode: EMPIRE)"`
 	JediHero *struct {
 		Name string
-	} `graphql:"aliasof=hero,(episode: JEDI)"`
+	} `graphql:"alias=hero,(episode: JEDI)"`
 }
 
 var pointersQuery = `
@@ -189,6 +211,7 @@ func TestToString(t *testing.T) {
 		{&aliases{}, aliasesQuery},
 		{&variables{}, variablesQuery},
 		{&inlineFragments{}, inlineFragmentsQuery},
+		{&directives{}, directivesQuery},
 		{&pointers{}, pointersQuery},
 		{&jsonTag{}, jsonTagQuery},
 	}

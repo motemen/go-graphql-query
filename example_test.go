@@ -38,7 +38,7 @@ type complexExample struct {
 			Episode Episode `graphql:"$ep"`
 		}
 		Name string
-	} `graphql:"aliasof=hero"` // use "aliasof=" tag to use alias
+	} `graphql:"alias=hero"` // use "alias=" tag to use alias
 
 	// GraphQLArguments at toplevel stands for query arguments
 	GraphQLArguments struct {
