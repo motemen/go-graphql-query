@@ -231,6 +231,37 @@ func TestToString(t *testing.T) {
 	}
 }
 
+func TestToString_Mutation(t *testing.T) {
+	type mutation struct {
+		CreateReview struct {
+			Stars      int
+			Commentary string
+		} `graphql:"(episode: $ep)"`
+
+		GraphQLArguments struct {
+			Episode Episode `graphql:"$ep"`
+		}
+	}
+
+	s, err := Build(
+		&mutation{},
+		OperationTypeMutation,
+		OperationName("CreateReviewForEpisode"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expected := strings.TrimSpace(`
+mutation CreateReviewForEpisode($ep: Episode) {
+  createReview(episode: $ep) {
+    stars
+    commentary
+  }
+}`); string(s) != expected {
+		t.Fatalf("===== got:\n%s\n===== but expected:\n%s\n", string(s), expected)
+	}
+}
+
 func TestParseTags(t *testing.T) {
 	tests := []struct {
 		in  string

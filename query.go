@@ -13,20 +13,43 @@ import (
 
 const argumentsFieldName = "GraphQLArguments"
 
+type Option func(*builder)
+
+var OperationTypeQuery Option = func(b *builder) {
+	b.operationType = "query"
+}
+
+var OperationTypeMutation Option = func(b *builder) {
+	b.operationType = "mutation"
+}
+
+func OperationName(name string) Option {
+	return func(b *builder) {
+		b.operationName = name
+	}
+}
+
 // Build makes GraphQL query suitable for q, which is also
 // a result JSON object for the GraphQL result JSON.
 // See the example.
-func Build(q interface{}) ([]byte, error) {
+func Build(q interface{}, opts ...Option) ([]byte, error) {
 	b := &builder{
-		query: q,
+		query:         q,
+		operationType: "query",
+	}
+
+	for _, opt := range opts {
+		opt(b)
 	}
 
 	return b.build()
 }
 
 type builder struct {
-	query interface{}
-	args  []argSpec
+	query         interface{}
+	operationType string
+	operationName string
+	args          []argSpec
 }
 
 type argSpec struct {
@@ -151,7 +174,8 @@ func (b *builder) queryArguments() (string, error) {
 // used in GraphQL query.
 //
 // TODO: more configurable way to convert Go types to GraphQL types
-//       maybe graphqlquery.RegisterType(&someType{}, "SomeType")?
+//
+//	maybe graphqlquery.RegisterType(&someType{}, "SomeType")?
 func (b *builder) typeName(rt reflect.Type) (string, error) {
 	if rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()
@@ -196,7 +220,11 @@ func (b *builder) build() ([]byte, error) {
 		return nil, err
 	}
 
-	return append([]byte("query"+args), buf.Bytes()...), nil
+	operation := b.operationType
+	if b.operationName != "" {
+		operation += " " + b.operationName
+	}
+	return append([]byte(operation+args), buf.Bytes()...), nil
 }
 
 func (b *builder) writeStructField(w io.Writer, depth int, field reflect.StructField) error {
