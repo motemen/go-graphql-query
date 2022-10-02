@@ -1,0 +1,8 @@
+query($withFriends: Boolean) {
+  hero {
+    name
+    friends @include(if: $withFriends) {
+      name
+    }
+  }
+}

@@ -1,0 +1,6 @@
+query {
+  human(id: "1000") {
+    name
+    height(unit: FOOT)
+  }
+}

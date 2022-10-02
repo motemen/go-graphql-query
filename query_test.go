@@ -1,9 +1,10 @@
 package graphqlquery
 
 import (
-	"fmt"
-	"strings"
 	"testing"
+
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/golden"
 )
 
 type simple struct {
@@ -11,13 +12,6 @@ type simple struct {
 		Name string
 	}
 }
-
-var simpleQuery = `
-query {
-  hero {
-    name
-  }
-}`
 
 type arguments struct {
 	Human []struct {
@@ -29,28 +23,12 @@ type arguments struct {
 	}
 }
 
-var argumentsQuery = `
-query {
-  human(id: "1000") {
-    name
-    height
-  }
-}`
-
 type arguments2 struct {
 	Human []struct {
 		Name   string
 		Height int
 	} `graphql:"(id: \"1000\")"`
 }
-
-var arguments2Query = `
-query {
-  human(id: "1000") {
-    name
-    height
-  }
-}`
 
 type argumentsScalar struct {
 	Human struct {
@@ -61,14 +39,6 @@ type argumentsScalar struct {
 		Height int `graphql:"(unit: FOOT)"`
 	}
 }
-
-var argumentsScalarQuery = `
-query {
-  human(id: "1000") {
-    name
-    height(unit: FOOT)
-  }
-}`
 
 type aliases struct {
 	EmpireHero struct {
@@ -85,16 +55,6 @@ type aliases struct {
 	} `graphql:"alias=hero"`
 }
 
-var aliasesQuery = `
-query {
-  empireHero: hero(episode: EMPIRE) {
-    name
-  }
-  jediHero: hero(episode: JEDI) {
-    name
-  }
-}`
-
 type variables struct {
 	Hero struct {
 		GraphQLArguments struct {
@@ -107,15 +67,6 @@ type variables struct {
 }
 
 type Episode string
-
-var variablesQuery = `
-query($episode: Episode) {
-  hero(episode: $episode) {
-    friends {
-      name
-    }
-  }
-}`
 
 type inlineFragments struct {
 	GraphQLArguments struct {
@@ -132,19 +83,6 @@ type DroidFields struct {
 	PrimaryFunction string
 }
 
-var inlineFragmentsQuery = `
-query($ep: Episode!) {
-  hero(episode: $ep) {
-    name
-    ... on Human {
-      height
-    }
-    ... on Droid {
-      primaryFunction
-    }
-  }
-}`
-
 type directives struct {
 	GraphQLArguments struct {
 		WithFriends bool `graphql:"$withFriends"`
@@ -156,16 +94,6 @@ type directives struct {
 		} `graphql:"@include(if: $withFriends)"`
 	}
 }
-
-var directivesQuery = `
-query($withFriends: Boolean) {
-  hero {
-    name
-    friends @include(if: $withFriends) {
-      name
-    }
-  }
-}`
 
 type pointers struct {
 	EmpireHero *struct {
@@ -179,59 +107,40 @@ type pointers struct {
 	} `graphql:"alias=hero,(episode: JEDI)"`
 }
 
-var pointersQuery = `
-query {
-  empireHero: hero(episode: EMPIRE) {
-    name
-  }
-  jediHero: hero(episode: JEDI) {
-    name
-  }
-}`
-
 type jsonTag struct {
 	HeroObject struct {
 		Name string
 	} `json:"hero"`
 }
 
-var jsonTagQuery = `
-query {
-  hero {
-    name
-  }
-}`
-
-func TestToString(t *testing.T) {
+func TestBuildQuery(t *testing.T) {
 	tests := []struct {
-		query  interface{}
-		result string
+		query interface{}
+		name  string
 	}{
-		{&simple{}, simpleQuery},
-		{&arguments{}, argumentsQuery},
-		{&arguments2{}, arguments2Query},
-		{&argumentsScalar{}, argumentsScalarQuery},
-		{&aliases{}, aliasesQuery},
-		{&variables{}, variablesQuery},
-		{&inlineFragments{}, inlineFragmentsQuery},
-		{&directives{}, directivesQuery},
-		{&pointers{}, pointersQuery},
-		{&jsonTag{}, jsonTagQuery},
+		{&simple{}, "simple"},
+		{&arguments{}, "arguments"},
+		{&arguments2{}, "arguments2"},
+		{&argumentsScalar{}, "argumentsScalar"},
+		{&aliases{}, "aliases"},
+		{&variables{}, "variables"},
+		{&inlineFragments{}, "inlineFragments"},
+		{&directives{}, "directives"},
+		{&pointers{}, "pointers"},
+		{&jsonTag{}, "jsonTag"},
 	}
 
 	for _, test := range tests {
-		s, err := Build(test.query)
+		s, err := BuildQuery(test.query)
 		if err != nil {
 			t.Error(err)
 			continue
 		}
-		if expected := strings.TrimSpace(test.result); string(s) != expected {
-			t.Errorf("===== got:\n%s\n===== but expected:\n%s\n", string(s), expected)
-		}
+		golden.AssertBytes(t, s, "query."+test.name+".golden")
 	}
 }
 
-func TestToString_Mutation(t *testing.T) {
+func TestBuild_Mutation(t *testing.T) {
 	type mutation struct {
 		CreateReview struct {
 			Stars      int
@@ -251,33 +160,30 @@ func TestToString_Mutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if expected := strings.TrimSpace(`
-mutation CreateReviewForEpisode($ep: Episode) {
+
+	expectedMutation := `mutation CreateReviewForEpisode($ep: Episode) {
   createReview(episode: $ep) {
     stars
     commentary
   }
-}`); string(s) != expected {
-		t.Fatalf("===== got:\n%s\n===== but expected:\n%s\n", string(s), expected)
-	}
+}`
+	assert.Equal(t, string(s), expectedMutation)
 }
 
 func TestParseTags(t *testing.T) {
 	tests := []struct {
 		in  string
-		out string
+		out []string
 	}{
-		{"a,b,c", "[a b c]"},
-		{"(a,b),c", "[(a,b) c]"},
-		{"a,(b,c)", "[a (b,c)]"},
-		{"a,(b,c),d", "[a (b,c) d]"},
-		{"a,(b,c,d", "[a (b c d]"},
+		{"a,b,c", []string{"a", "b", "c"}},
+		{"(a,b),c", []string{"(a,b)", "c"}},
+		{"a,(b,c)", []string{"a", "(b,c)"}},
+		{"a,(b,c),d", []string{"a", "(b,c)", "d"}},
+		{"a,(b,c,d", []string{"a", "(b", "c", "d"}},
 	}
 
 	for _, test := range tests {
-		if got := fmt.Sprintf("%v", parseTags(test.in)); got != test.out {
-			t.Errorf("expected %v but got %v", test.out, got)
-		}
+		assert.DeepEqual(t, parseTags(test.in), test.out)
 	}
 }
 
@@ -296,8 +202,6 @@ func TestBuilder_ToName(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if got := fmt.Sprintf("%v", b.toName(test.in)); got != test.out {
-			t.Errorf("expected %v but got %v", test.out, got)
-		}
+		assert.Equal(t, b.toName(test.in), test.out)
 	}
 }
