@@ -45,6 +45,14 @@ func Build(q interface{}, opts ...Option) ([]byte, error) {
 	return b.build()
 }
 
+func BuildQuery(q interface{}, opts ...Option) ([]byte, error) {
+	return Build(q, append(opts, OperationTypeQuery)...)
+}
+
+func BuildMutation(q interface{}, opts ...Option) ([]byte, error) {
+	return Build(q, append(opts, OperationTypeMutation)...)
+}
+
 type builder struct {
 	query         interface{}
 	operationType string
